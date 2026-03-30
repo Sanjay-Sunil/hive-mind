@@ -1,43 +1,97 @@
-import React, { useState } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Text, View, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { CyberTheme as T } from '../constants/CyberTheme';
+import { getDocuments, pickAndSaveDocument, deleteDocument } from '../src/database/database';
+
+type DocRow = {
+  id: number;
+  space_id: number;
+  file_name: string;
+  local_uri: string;
+};
 
 export default function AddFiles() {
   const router = useRouter();
-  const { spaceName } = useLocalSearchParams();
-  const [files, setFiles] = useState<{ name: string; uri: string }[]>([]);
+  const { spaceId, spaceName } = useLocalSearchParams<{ spaceId: string; spaceName: string }>();
+  const numericSpaceId = Number(spaceId);
 
-  const pickDocument = async () => {
+  const [files, setFiles] = useState<DocRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [picking, setPicking] = useState(false);
+
+  // Load existing documents for this space (in case user comes back)
+  const loadDocs = async () => {
+    try {
+      const docs = (await getDocuments(numericSpaceId)) as DocRow[];
+      setFiles(docs);
+    } catch (e) {
+      console.error('Failed to load docs:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDocs();
+  }, []);
+
+  const handlePick = async () => {
+    if (picking) return;
+    setPicking(true);
+
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/pdf',
         multiple: true,
-        copyToCacheDirectory: false,
+        copyToCacheDirectory: true, // Need cache copy first for FileSystem.copyAsync
       });
 
       if (!result.canceled && result.assets) {
-        setFiles([
-          ...files,
-          ...result.assets.map((a) => ({ name: a.name, uri: a.uri })),
-        ]);
+        // Process each picked asset: temp → permanent + save to DB
+        for (const asset of result.assets) {
+          try {
+            const saved = await pickAndSaveDocument(numericSpaceId, asset);
+            if (saved) {
+              setFiles((prev) => [
+                ...prev,
+                {
+                  id: saved.id,
+                  space_id: numericSpaceId,
+                  file_name: saved.file_name,
+                  local_uri: saved.local_uri,
+                },
+              ]);
+            }
+          } catch (e) {
+            console.error('Failed to save document:', asset.name, e);
+          }
+        }
       }
     } catch (err) {
       console.warn('Failed to pick document', err);
+    } finally {
+      setPicking(false);
     }
   };
 
-  const removeFile = (index: number) => {
-    setFiles(files.filter((_, i) => i !== index));
+  const handleRemove = async (docId: number) => {
+    try {
+      await deleteDocument(docId);
+      setFiles((prev) => prev.filter((f) => f.id !== docId));
+    } catch (e) {
+      console.error('Failed to delete document:', e);
+    }
   };
 
   const handleFinish = () => {
     router.push({
       pathname: '/processing',
       params: {
-        spaceName,
-        files: JSON.stringify(files.map((f) => f.name)),
+        spaceId: spaceId,
+        spaceName: spaceName,
+        files: JSON.stringify(files.map((f) => f.file_name)),
       },
     });
   };
@@ -67,15 +121,22 @@ export default function AddFiles() {
       <TouchableOpacity
         style={styles.addButton}
         activeOpacity={0.7}
-        onPress={pickDocument}
+        onPress={handlePick}
+        disabled={picking}
       >
-        <View style={styles.addIconCircle}>
-          <Text style={styles.addIcon}>＋</Text>
-        </View>
+        {picking ? (
+          <ActivityIndicator size="small" color={T.colors.accent} style={{ marginRight: T.spacing.md }} />
+        ) : (
+          <View style={styles.addIconCircle}>
+            <Text style={styles.addIcon}>＋</Text>
+          </View>
+        )}
         <View>
-          <Text style={styles.addButtonTitle}>Add PDF File</Text>
+          <Text style={styles.addButtonTitle}>
+            {picking ? 'Processing files...' : 'Add PDF File'}
+          </Text>
           <Text style={styles.addButtonSub}>
-            Tap to browse your device
+            {picking ? 'Copying to permanent storage' : 'Tap to browse your device'}
           </Text>
         </View>
       </TouchableOpacity>
@@ -87,41 +148,44 @@ export default function AddFiles() {
           <Text style={styles.fileCount}>{files.length}</Text>
         </View>
 
-        <ScrollView
-          style={styles.fileList}
-          showsVerticalScrollIndicator={false}
-        >
-          {files.length === 0 && (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>📄</Text>
-              <Text style={styles.emptyText}>No files selected yet</Text>
-              <Text style={styles.emptyHint}>
-                Tap the button above to pick PDF documents
-              </Text>
-            </View>
-          )}
-
-          {files.map((file, index) => (
-            <View key={index.toString()} style={styles.fileRow}>
-              <View style={styles.fileIconWrap}>
-                <Text style={styles.fileIcon}>📄</Text>
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="small" color={T.colors.accent} />
+          </View>
+        ) : (
+          <ScrollView style={styles.fileList} showsVerticalScrollIndicator={false}>
+            {files.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>📄</Text>
+                <Text style={styles.emptyText}>No files selected yet</Text>
+                <Text style={styles.emptyHint}>
+                  Tap the button above to pick PDF documents
+                </Text>
               </View>
-              <Text
-                style={styles.fileName}
-                numberOfLines={1}
-                ellipsizeMode="middle"
-              >
-                {file.name}
-              </Text>
-              <TouchableOpacity
-                style={styles.removeButton}
-                onPress={() => removeFile(index)}
-              >
-                <Text style={styles.removeText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </ScrollView>
+            )}
+
+            {files.map((file) => (
+              <View key={file.id.toString()} style={styles.fileRow}>
+                <View style={styles.fileIconWrap}>
+                  <Text style={styles.fileIcon}>📄</Text>
+                </View>
+                <Text
+                  style={styles.fileName}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {file.file_name}
+                </Text>
+                <TouchableOpacity
+                  style={styles.removeButton}
+                  onPress={() => handleRemove(file.id)}
+                >
+                  <Text style={styles.removeText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        )}
       </View>
 
       {/* CTA */}
@@ -248,6 +312,11 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: T.radius.full,
     overflow: 'hidden',
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fileList: {
     flex: 1,

@@ -1,17 +1,54 @@
-import React from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useState, useCallback } from 'react';
+import { Text, View, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { CyberTheme as T } from '../constants/CyberTheme';
+import { getSpaces, getDocumentCountForSpace } from '../src/database/database';
+
+const SPACE_EMOJIS = ['📚', '🧬', '🔬', '📡', '🩹', '🎯', '💡', '🗂️', '🧠', '🌐'];
+
+function getEmoji(index: number) {
+  return SPACE_EMOJIS[index % SPACE_EMOJIS.length];
+}
+
+type SpaceRow = {
+  id: number;
+  title: string;
+  created_at: string;
+  docCount?: number;
+};
 
 export default function Index() {
   const router = useRouter();
+  const [spaces, setSpaces] = useState<SpaceRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const existingSpaces = [
-    { id: '1', name: 'first aid', emoji: '🩹' },
-    { id: '2', name: 'radio', emoji: '📻' },
-    { id: '3', name: 'tv', emoji: '📺' },
-    { id: '4', name: 'venomous', emoji: '🐍' },
-  ];
+  const loadSpaces = useCallback(async () => {
+    try {
+      setLoading(true);
+      const rows = (await getSpaces()) as SpaceRow[];
+
+      // Enrich each space with its document count
+      const enriched = await Promise.all(
+        rows.map(async (space) => {
+          const docCount = await getDocumentCountForSpace(space.id);
+          return { ...space, docCount };
+        })
+      );
+
+      setSpaces(enriched);
+    } catch (e) {
+      console.error('Failed to load spaces:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Reload spaces every time this screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadSpaces();
+    }, [loadSpaces])
+  );
 
   return (
     <View style={styles.container}>
@@ -46,39 +83,52 @@ export default function Index() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Your Spaces</Text>
-          <Text style={styles.sectionCount}>{existingSpaces.length}</Text>
+          <Text style={styles.sectionCount}>{spaces.length}</Text>
         </View>
 
-        <ScrollView
-          style={styles.list}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 40 }}
-        >
-          {existingSpaces.map((space, index) => (
-            <TouchableOpacity
-              key={space.id}
-              style={styles.spaceCard}
-              activeOpacity={0.7}
-              onPress={() =>
-                router.push({
-                  pathname: '/chat',
-                  params: { spaceName: space.name },
-                })
-              }
-            >
-              <View style={styles.spaceEmoji}>
-                <Text style={{ fontSize: 22 }}>{space.emoji}</Text>
-              </View>
-              <View style={styles.spaceInfo}>
-                <Text style={styles.spaceName}>{space.name}</Text>
-                <Text style={styles.spaceMeta}>
-                  {index + 2} files · last opened today
-                </Text>
-              </View>
-              <Text style={styles.spaceArrow}>›</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="small" color={T.colors.accent} />
+          </View>
+        ) : spaces.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>🗂️</Text>
+            <Text style={styles.emptyText}>No spaces yet</Text>
+            <Text style={styles.emptyHint}>Tap "Create Space" above to get started</Text>
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.list}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 40 }}
+          >
+            {spaces.map((space, index) => (
+              <TouchableOpacity
+                key={space.id}
+                style={styles.spaceCard}
+                activeOpacity={0.7}
+                onPress={() =>
+                  router.push({
+                    pathname: '/chat',
+                    params: { spaceId: space.id, spaceName: space.title },
+                  })
+                }
+              >
+                <View style={styles.spaceEmoji}>
+                  <Text style={{ fontSize: 22 }}>{getEmoji(index)}</Text>
+                </View>
+                <View style={styles.spaceInfo}>
+                  <Text style={styles.spaceName}>{space.title}</Text>
+                  <Text style={styles.spaceMeta}>
+                    {space.docCount || 0} file{space.docCount !== 1 ? 's' : ''} ·{' '}
+                    {new Date(space.created_at).toLocaleDateString()}
+                  </Text>
+                </View>
+                <Text style={styles.spaceArrow}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
       </View>
     </View>
   );
@@ -181,6 +231,30 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: T.radius.full,
     overflow: 'hidden',
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: T.spacing.xxl,
+  },
+  emptyIcon: {
+    fontSize: 40,
+    marginBottom: T.spacing.md,
+    opacity: 0.5,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: T.colors.secondaryText,
+    fontWeight: '600',
+    marginBottom: T.spacing.xs,
+  },
+  emptyHint: {
+    fontSize: 13,
+    color: T.colors.mutedText,
   },
   list: {
     flex: 1,

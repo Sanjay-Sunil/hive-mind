@@ -4,14 +4,16 @@ import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { setBackgroundColorAsync } from 'expo-system-ui';
+import * as SystemUI from 'expo-system-ui';
 import 'react-native-reanimated';
 
-// Keep the native splash screen visible until we explicitly hide it
+import { initDB } from '../src/database/database';
+
+// Prevent native splash from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
-// Set the root native background to match theme
-setBackgroundColorAsync('#0A0A0F');
+// Set root native background
+SystemUI.setBackgroundColorAsync('#0A0A0F');
 
 const customDark = {
   ...DarkTheme,
@@ -25,12 +27,12 @@ const customDark = {
   },
 };
 
+// ─── Branded Loading Screen ───
 function AppLoadingScreen({ onFinish }: { onFinish: () => void }) {
   const fadeAnim = React.useRef(new Animated.Value(1)).current;
   const pulseAnim = React.useRef(new Animated.Value(0.5)).current;
 
   useEffect(() => {
-    // Pulse the dots
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -46,15 +48,12 @@ function AppLoadingScreen({ onFinish }: { onFinish: () => void }) {
       ])
     ).start();
 
-    // Wait a moment, then fade out and signal done
     const timer = setTimeout(() => {
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 400,
         useNativeDriver: true,
-      }).start(() => {
-        onFinish();
-      });
+      }).start(() => onFinish());
     }, 1200);
 
     return () => clearTimeout(timer);
@@ -62,17 +61,12 @@ function AppLoadingScreen({ onFinish }: { onFinish: () => void }) {
 
   return (
     <Animated.View style={[styles.loadingContainer, { opacity: fadeAnim }]}>
-      {/* Logo dots */}
       <View style={styles.logoContainer}>
         <View style={styles.logoDot} />
         <View style={[styles.logoDot, styles.logoDotLight]} />
       </View>
-
-      {/* Brand */}
       <Text style={styles.brand}>HIVE</Text>
       <Text style={styles.tagline}>Knowledge in isolation</Text>
-
-      {/* Pulsing loader */}
       <Animated.View style={[styles.loaderDots, { opacity: pulseAnim }]}>
         <View style={styles.dot} />
         <View style={styles.dot} />
@@ -82,23 +76,33 @@ function AppLoadingScreen({ onFinish }: { onFinish: () => void }) {
   );
 }
 
+// ─── Root Layout ───
 export default function RootLayout() {
-  const [appReady, setAppReady] = useState(false);
+  const [isDbReady, setIsDbReady] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
 
+  // Boot: Initialize DB exactly once
   useEffect(() => {
-    // When layout mounts, the app is essentially loaded
-    setAppReady(true);
+    (async () => {
+      try {
+        await initDB();
+        console.log('DB ready');
+      } catch (e) {
+        console.error('DB init failed:', e);
+      } finally {
+        setIsDbReady(true);
+      }
+    })();
   }, []);
 
   const onLayoutRootView = useCallback(async () => {
-    if (appReady) {
-      // Hide the native splash screen first
+    if (isDbReady) {
       await SplashScreen.hideAsync();
     }
-  }, [appReady]);
+  }, [isDbReady]);
 
-  if (!appReady) return null;
+  // Show nothing until DB is ready (native splash still visible)
+  if (!isDbReady) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0A0A0F' }} onLayout={onLayoutRootView}>
@@ -117,14 +121,8 @@ export default function RootLayout() {
             }}
           >
             <Stack.Screen name="index" />
-            <Stack.Screen
-              name="create-space"
-              options={{ animation: 'slide_from_right' }}
-            />
-            <Stack.Screen
-              name="add-files"
-              options={{ animation: 'slide_from_right' }}
-            />
+            <Stack.Screen name="create-space" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="add-files" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="processing" options={{ animation: 'fade' }} />
             <Stack.Screen name="chat" options={{ animation: 'fade' }} />
             <Stack.Screen name="modal" options={{ presentation: 'modal' }} />

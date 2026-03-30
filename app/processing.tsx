@@ -5,7 +5,7 @@ import { CyberTheme as T } from '../constants/CyberTheme';
 
 export default function Processing() {
   const router = useRouter();
-  const { spaceName, files } = useLocalSearchParams();
+  const { spaceId, spaceName, files } = useLocalSearchParams();
   const spinAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(0.6)).current;
   const [dots, setDots] = useState('');
@@ -46,7 +46,7 @@ export default function Processing() {
     const timer = setTimeout(() => {
       router.replace({
         pathname: '/chat',
-        params: { spaceName, files },
+        params: { spaceId, spaceName, files },
       });
     }, 3000);
 

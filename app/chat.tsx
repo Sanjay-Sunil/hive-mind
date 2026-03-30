@@ -8,71 +8,115 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CyberTheme as T } from '../constants/CyberTheme';
+import {
+  getMessages,
+  saveMessage,
+  getDocuments,
+} from '../src/database/database';
 
 type Message = {
-  id: string;
-  sender: 'user' | 'system';
-  text: string;
+  id: number | string;
+  role: 'user' | 'bot';
+  content: string;
 };
 
 export default function Chat() {
   const router = useRouter();
-  const { spaceName, files } = useLocalSearchParams<{
+  const { spaceId, spaceName, files } = useLocalSearchParams<{
+    spaceId?: string;
     spaceName: string;
     files?: string;
   }>();
   const scrollRef = useRef<ScrollView>(null);
+  const numericSpaceId = spaceId ? Number(spaceId) : null;
 
-  const parsedFiles: string[] = files ? JSON.parse(files) : [];
-
-  const initialMessages: Message[] = [];
-
-  if (parsedFiles.length > 0) {
-    initialMessages.push({
-      id: '1',
-      sender: 'system',
-      text: `✨ Space "${spaceName || 'Unknown'}" is ready!\n\n📎 ${parsedFiles.length} file(s) loaded:\n${parsedFiles.map((f) => `  • ${f}`).join('\n')}\n\nYou can now ask questions about your documents.`,
-    });
-  } else {
-    initialMessages.push({
-      id: '1',
-      sender: 'system',
-      text: `✨ Space "${spaceName || 'Unknown'}" is ready!\n\nNo files were added. You can still use this space for general conversation.`,
-    });
-  }
-
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [docCount, setDocCount] = useState(0);
+
+  // Load chat history + document info on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!numericSpaceId) {
+          setLoading(false);
+          return;
+        }
+
+        // Load documents for header info
+        const docs = await getDocuments(numericSpaceId);
+        setDocCount(docs.length);
+
+        // Load existing messages from DB
+        const dbMessages = (await getMessages(numericSpaceId)) as any[];
+
+        if (dbMessages.length > 0) {
+          // Existing conversation — restore it
+          setMessages(
+            dbMessages.map((m) => ({
+              id: m.id,
+              role: m.role as 'user' | 'bot',
+              content: m.content,
+            }))
+          );
+        } else {
+          // Brand-new space — generate initial system message
+          const parsedFiles: string[] = files ? JSON.parse(files) : [];
+          const fileNames = parsedFiles.length > 0 ? parsedFiles : docs.map((d: any) => d.file_name);
+
+          const welcomeText =
+            fileNames.length > 0
+              ? `✨ Space "${spaceName || 'Unknown'}" is ready!\n\n📎 ${fileNames.length} file(s) loaded:\n${fileNames.map((f: string) => `  • ${f}`).join('\n')}\n\nYou can now ask questions about your documents.`
+              : `✨ Space "${spaceName || 'Unknown'}" is ready!\n\nNo files were added. You can still use this space for general conversation.`;
+
+          // Save the welcome message to DB
+          const msgId = await saveMessage(numericSpaceId, 'bot', welcomeText);
+          setMessages([{ id: msgId, role: 'bot', content: welcomeText }]);
+        }
+      } catch (e) {
+        console.error('Failed to load chat:', e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollToEnd({ animated: true });
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   }, [messages]);
 
-  const handleSend = () => {
-    if (!inputText.trim()) return;
+  const handleSend = async () => {
+    if (!inputText.trim() || !numericSpaceId) return;
 
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      sender: 'user',
-      text: inputText.trim(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
+    const text = inputText.trim();
     setInputText('');
 
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: 'system',
-          text: 'I\'m analyzing your documents to find relevant information. This is a demo response — backend integration coming soon! 🚀',
-        },
-      ]);
-    }, 1200);
+    // Save user message to DB and update state
+    try {
+      const userMsgId = await saveMessage(numericSpaceId, 'user', text);
+      const userMsg: Message = { id: userMsgId, role: 'user', content: text };
+      setMessages((prev) => [...prev, userMsg]);
+
+      // Simulate bot response + save to DB
+      setTimeout(async () => {
+        const botText =
+          "I'm analyzing your documents to find relevant information. This is a demo response — backend integration coming soon! 🚀";
+        const botMsgId = await saveMessage(numericSpaceId, 'bot', botText);
+        setMessages((prev) => [
+          ...prev,
+          { id: botMsgId, role: 'bot', content: botText },
+        ]);
+      }, 1200);
+    } catch (e) {
+      console.error('Failed to send message:', e);
+    }
   };
 
   return (
@@ -97,7 +141,7 @@ export default function Chat() {
           <View style={styles.headerMeta}>
             <View style={styles.onlineDot} />
             <Text style={styles.headerSub}>
-              {parsedFiles.length} file{parsedFiles.length !== 1 ? 's' : ''} loaded
+              {docCount} file{docCount !== 1 ? 's' : ''} loaded
             </Text>
           </View>
         </View>
@@ -111,38 +155,44 @@ export default function Chat() {
       </View>
 
       {/* Messages */}
-      <ScrollView
-        ref={scrollRef}
-        style={styles.chatArea}
-        contentContainerStyle={styles.chatContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((msg) => (
-          <View
-            key={msg.id}
-            style={[
-              styles.messageBubble,
-              msg.sender === 'user'
-                ? styles.userBubble
-                : styles.systemBubble,
-            ]}
-          >
-            {msg.sender === 'system' && (
-              <View style={styles.senderBadge}>
-                <Text style={styles.senderBadgeText}>HIVE</Text>
-              </View>
-            )}
-            <Text
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={T.colors.accent} />
+        </View>
+      ) : (
+        <ScrollView
+          ref={scrollRef}
+          style={styles.chatArea}
+          contentContainerStyle={styles.chatContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {messages.map((msg) => (
+            <View
+              key={msg.id.toString()}
               style={[
-                styles.messageText,
-                msg.sender === 'user' && styles.userMessageText,
+                styles.messageBubble,
+                msg.role === 'user'
+                  ? styles.userBubble
+                  : styles.systemBubble,
               ]}
             >
-              {msg.text}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
+              {msg.role === 'bot' && (
+                <View style={styles.senderBadge}>
+                  <Text style={styles.senderBadgeText}>HIVE</Text>
+                </View>
+              )}
+              <Text
+                style={[
+                  styles.messageText,
+                  msg.role === 'user' && styles.userMessageText,
+                ]}
+              >
+                {msg.content}
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+      )}
 
       {/* Input */}
       <View style={styles.inputBar}>
@@ -179,7 +229,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: T.colors.background,
   },
-  // ─── Header ───
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -242,7 +291,11 @@ const styles = StyleSheet.create({
     borderRadius: T.radius.full,
     backgroundColor: T.colors.accent,
   },
-  // ─── Chat ───
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chatArea: {
     flex: 1,
   },
@@ -259,14 +312,14 @@ const styles = StyleSheet.create({
   userBubble: {
     alignSelf: 'flex-end',
     backgroundColor: T.colors.accent,
-    borderBottomRightRadius: T.radius.xs || 4,
+    borderBottomRightRadius: 4,
   },
   systemBubble: {
     alignSelf: 'flex-start',
     backgroundColor: T.colors.card,
     borderWidth: 1,
     borderColor: T.colors.border,
-    borderBottomLeftRadius: T.radius.xs || 4,
+    borderBottomLeftRadius: 4,
   },
   senderBadge: {
     backgroundColor: T.colors.accentSoft,
@@ -290,7 +343,6 @@ const styles = StyleSheet.create({
   userMessageText: {
     color: '#FFFFFF',
   },
-  // ─── Input ───
   inputBar: {
     paddingHorizontal: T.spacing.lg,
     paddingTop: T.spacing.md,

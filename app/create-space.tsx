@@ -1,19 +1,41 @@
 import React, { useState } from 'react';
-import { Text, View, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  Text,
+  View,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { CyberTheme as T } from '../constants/CyberTheme';
+import { createSpace } from '../src/database/database';
 
 export default function CreateSpace() {
   const router = useRouter();
   const [spaceName, setSpaceName] = useState('');
+  const [saving, setSaving] = useState(false);
   const isValid = spaceName.trim().length > 0;
 
-  const handleStart = () => {
-    if (isValid) {
+  const handleStart = async () => {
+    if (!isValid || saving) return;
+
+    try {
+      setSaving(true);
+      const spaceId = await createSpace(spaceName.trim());
+      console.log('Created space with id:', spaceId);
+
+      // Navigate to add-files, passing the real spaceId from DB
       router.push({
         pathname: '/add-files',
-        params: { spaceName: spaceName.trim() },
+        params: { spaceId: spaceId.toString(), spaceName: spaceName.trim() },
       });
+    } catch (e) {
+      console.error('Failed to create space:', e);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -52,6 +74,7 @@ export default function CreateSpace() {
             onChangeText={setSpaceName}
             autoFocus
             selectionColor={T.colors.accent}
+            editable={!saving}
           />
 
           {isValid && (
@@ -68,14 +91,20 @@ export default function CreateSpace() {
           style={[styles.button, !isValid && styles.buttonDisabled]}
           activeOpacity={0.8}
           onPress={handleStart}
-          disabled={!isValid}
+          disabled={!isValid || saving}
         >
-          <Text style={[styles.buttonText, !isValid && styles.buttonTextDisabled]}>
-            Let's get started
-          </Text>
-          <Text style={[styles.buttonArrow, !isValid && styles.buttonTextDisabled]}>
-            →
-          </Text>
+          {saving ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Text style={[styles.buttonText, !isValid && styles.buttonTextDisabled]}>
+                Let's get started
+              </Text>
+              <Text style={[styles.buttonArrow, !isValid && styles.buttonTextDisabled]}>
+                →
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
