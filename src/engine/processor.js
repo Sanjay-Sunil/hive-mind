@@ -72,12 +72,12 @@ export const processDocument = async (localUri, documentId) => {
   let savedCount = 0;
   for (const chunkText of chunks) {
     try {
-      const vectorBlob = dummyGenerateVector();
-      await saveChunk(documentId, chunkText, vectorBlob);
+      // Save with empty blob for now. AIEngine will fill it in during the Processing screen.
+      const emptyBlob = new Uint8Array(0);
+      await saveChunk(documentId, chunkText, emptyBlob);
       savedCount++;
     } catch (saveErr) {
       console.warn(`[processor] Failed to save chunk ${savedCount}:`, saveErr);
-      // Continue processing remaining chunks even if one fails
     }
   }
 

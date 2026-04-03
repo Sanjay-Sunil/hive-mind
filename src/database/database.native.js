@@ -252,3 +252,34 @@ export const getChunkCountForDocument = async (documentId) => {
   );
   return result?.count || 0;
 };
+
+/**
+ * Updates an existing chunk with its generated 384-D vector embedding.
+ */
+export const updateChunkEmbedding = async (chunkId, vectorBlob) => {
+  const database = getDB();
+  if (!database) throw new Error('DB not initialized');
+
+  await database.runAsync(
+    'UPDATE chunks SET vector_blob = ? WHERE id = ?',
+    [vectorBlob, chunkId]
+  );
+};
+
+/**
+ * Returns all chunks for a specific space that have a null or empty vector blob (needs embedding).
+ */
+export const getUnembeddedChunks = async (spaceId) => {
+  const database = getDB();
+  if (!database) throw new Error('DB not initialized');
+
+  const rows = await database.getAllAsync(
+    `SELECT chunks.id, chunks.text_content
+     FROM chunks
+     INNER JOIN documents ON chunks.document_id = documents.id
+     WHERE documents.space_id = ? AND (chunks.vector_blob IS NULL OR length(chunks.vector_blob) = 0)
+     ORDER BY chunks.id ASC`,
+    [spaceId]
+  );
+  return rows;
+};
