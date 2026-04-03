@@ -11,6 +11,7 @@ export const initDB = async () => {
 
     await db.execAsync(`
       PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
 
       CREATE TABLE IF NOT EXISTS spaces (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,6 +82,16 @@ export const deleteSpace = async (spaceId) => {
   const database = getDB();
   if (!database) throw new Error('DB not initialized');
 
+  // Explicit cascade: delete chunks → documents → messages → space
+  // This guarantees a clean DB even if PRAGMA foreign_keys was off in a prior session.
+  await database.runAsync(
+    `DELETE FROM chunks WHERE document_id IN (
+       SELECT id FROM documents WHERE space_id = ?
+     )`,
+    [spaceId]
+  );
+  await database.runAsync('DELETE FROM documents WHERE space_id = ?', [spaceId]);
+  await database.runAsync('DELETE FROM messages WHERE space_id = ?', [spaceId]);
   await database.runAsync('DELETE FROM spaces WHERE id = ?', [spaceId]);
 };
 
@@ -186,4 +197,43 @@ export const getDocumentCountForSpace = async (spaceId) => {
     [spaceId]
   );
   return result?.count || 0;
+};
+
+// ─── Chunks ──────────────────────────────────────────────
+
+/**
+ * Saves a single text chunk + its vector BLOB to the chunks table.
+ * @param {number} documentId - FK to documents.id
+ * @param {string} textContent - The raw chunk text
+ * @param {Uint8Array} vectorBlob - The embedding vector as a BLOB
+ */
+export const saveChunk = async (documentId, textContent, vectorBlob) => {
+  const database = getDB();
+  if (!database) throw new Error('DB not initialized');
+
+  const result = await database.runAsync(
+    'INSERT INTO chunks (document_id, text_content, vector_blob) VALUES (?, ?, ?)',
+    [documentId, textContent, vectorBlob]
+  );
+  return result.lastInsertRowId;
+};
+
+/**
+ * Debug function: returns all text chunks for every document in a given space.
+ * Uses INNER JOIN to traverse: space → documents → chunks.
+ * @param {number} spaceId - The space's primary key
+ */
+export const getChunksForSpace = async (spaceId) => {
+  const database = getDB();
+  if (!database) throw new Error('DB not initialized');
+
+  const rows = await database.getAllAsync(
+    `SELECT chunks.id, chunks.text_content, documents.file_name
+     FROM chunks
+     INNER JOIN documents ON chunks.document_id = documents.id
+     WHERE documents.space_id = ?
+     ORDER BY chunks.id ASC`,
+    [spaceId]
+  );
+  return rows;
 };

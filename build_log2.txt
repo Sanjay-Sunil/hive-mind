@@ -1,0 +1,231 @@
+﻿> Task :expo-gradle-plugin:expo-autolinking-plugin-shared:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:shared:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:settings-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-gradle-plugin:expo-autolinking-settings-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-gradle-plugin:expo-autolinking-settings-plugin:pluginDescriptors UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-settings-plugin:processResources UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:pluginDescriptors UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:processResources UP-TO-DATE
+> Task :gradle-plugin:shared:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:shared:compileJava NO-SOURCE
+> Task :gradle-plugin:shared:processResources NO-SOURCE
+> Task :gradle-plugin:shared:classes UP-TO-DATE
+> Task :gradle-plugin:shared:jar UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:settings-plugin:classes UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:jar UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-plugin-shared:processResources NO-SOURCE
+> Task :expo-gradle-plugin:expo-autolinking-plugin-shared:compileKotlin
+> Task :expo-gradle-plugin:expo-autolinking-plugin-shared:compileJava NO-SOURCE
+> Task :expo-gradle-plugin:expo-autolinking-plugin-shared:classes UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-plugin-shared:jar UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-settings-plugin:compileKotlin
+> Task :expo-gradle-plugin:expo-autolinking-settings-plugin:compileJava NO-SOURCE
+> Task :expo-gradle-plugin:expo-autolinking-settings-plugin:classes UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-settings-plugin:jar UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:react-native-gradle-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-module-gradle-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:react-native-gradle-plugin:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:react-native-gradle-plugin:pluginDescriptors UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:processResources UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:classes UP-TO-DATE
+> Task :expo-module-gradle-plugin:pluginDescriptors UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:jar UP-TO-DATE
+> Task :expo-module-gradle-plugin:processResources UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-plugin:pluginDescriptors UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-plugin:processResources UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-plugin:compileKotlin
+> Task :expo-gradle-plugin:expo-autolinking-plugin:compileJava NO-SOURCE
+> Task :expo-gradle-plugin:expo-autolinking-plugin:classes UP-TO-DATE
+> Task :expo-gradle-plugin:expo-autolinking-plugin:jar UP-TO-DATE
+
+> Task :expo-module-gradle-plugin:compileKotlin
+w: file:///C:/Projects/hive-mind/node_modules/expo-modules-core/expo-module-gradle-plugin/src/main/kotlin/expo/modules/plugin/android/AndroidLibraryExtension.kt:9:24 'var targetSdk: Int?' is deprecated. Will be removed from library DSL in v9.0. Use testOptions.targetSdk or/and lint.targetSdk instead.
+
+> Task :expo-module-gradle-plugin:compileJava NO-SOURCE
+> Task :expo-module-gradle-plugin:classes UP-TO-DATE
+> Task :expo-module-gradle-plugin:jar UP-TO-DATE
+
+> Configure project :
+[32m[ExpoRootProject][0m Using the following versions:
+  - buildTools:  [32m36.0.0[0m
+  - minSdk:      [32m24[0m
+  - compileSdk:  [32m36[0m
+  - targetSdk:   [32m36[0m
+  - ndk:         [32m27.1.12297006[0m
+  - kotlin:      [32m2.1.20[0m
+  - ksp:         [32m2.1.20-2.0.1[0m
+
+> Configure project :expo
+
+Using expo modules
+  - [32mexpo-constants[0m (18.0.13)
+  - [32mexpo-modules-core[0m (3.0.29)
+  - [32mexpo-pdf-text-extract[0m (unspecified)
+  - [33m[≡ƒôª][0m [32mexpo-asset[0m (12.0.12)
+  - [33m[≡ƒôª][0m [32mexpo-document-picker[0m (14.0.8)
+  - [33m[≡ƒôª][0m [32mexpo-file-system[0m (19.0.21)
+  - [33m[≡ƒôª][0m [32mexpo-font[0m (14.0.11)
+  - [33m[≡ƒôª][0m [32mexpo-haptics[0m (15.0.8)
+  - [33m[≡ƒôª][0m [32mexpo-image[0m (3.0.11)
+  - [33m[≡ƒôª][0m [32mexpo-keep-awake[0m (15.0.8)
+  - [33m[≡ƒôª][0m [32mexpo-linking[0m (8.0.11)
+  - [33m[≡ƒôª][0m [32mexpo-splash-screen[0m (31.0.13)
+  - [33m[≡ƒôª][0m [32mexpo-sqlite[0m (16.0.10)
+  - [33m[≡ƒôª][0m [32mexpo-system-ui[0m (6.0.9)
+  - [33m[≡ƒôª][0m [32mexpo-web-browser[0m (15.0.10)
+
+
+> Task :expo-pdf-text-extract:preBuild UP-TO-DATE
+> Task :expo-pdf-text-extract:preDebugBuild UP-TO-DATE
+> Task :expo-modules-core:preBuild UP-TO-DATE
+> Task :expo-modules-core:preDebugBuild UP-TO-DATE
+> Task :expo-modules-core:generateDebugResValues
+> Task :expo-pdf-text-extract:generateDebugResValues
+> Task :expo-pdf-text-extract:writeDebugAarMetadata
+> Task :expo-modules-core:writeDebugAarMetadata
+> Task :expo-pdf-text-extract:generateDebugResources
+> Task :expo-modules-core:generateDebugResources
+> Task :expo-modules-core:packageDebugResources
+> Task :expo-pdf-text-extract:packageDebugResources
+> Task :expo-modules-core:extractDeepLinksDebug
+> Task :app:generateAutolinkingNewArchitectureFiles
+> Task :expo-pdf-text-extract:extractDeepLinksDebug
+> Task :app:generateAutolinkingPackageList
+> Task :app:generateCodegenSchemaFromJavaScript SKIPPED
+> Task :app:generateCodegenArtifactsFromSchema SKIPPED
+> Task :app:generateReactNativeEntryPoint
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-modules-core:compileDebugLibraryResources
+> Task :expo-pdf-text-extract:compileDebugLibraryResources
+
+> Task :expo-modules-core:processDebugManifest
+C:\Projects\hive-mind\node_modules\expo-modules-core\android\src\main\AndroidManifest.xml:8:9-11:45 Warning:
+	meta-data#com.facebook.soloader.enabled@android:value was tagged at AndroidManifest.xml:8 to replace other declarations but no other declaration present
+
+> Task :react-native-reanimated:assertMinimalReactNativeVersionTask
+> Task :react-native-reanimated:assertNewArchitectureEnabledTask SKIPPED
+> Task :react-native-worklets:assertMinimalReactNativeVersionTask
+> Task :react-native-worklets:assertNewArchitectureEnabledTask SKIPPED
+> Task :expo-pdf-text-extract:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-modules-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-pdf-text-extract:generateDebugBuildConfig
+> Task :expo-pdf-text-extract:javaPreCompileDebug
+> Task :expo-modules-core:parseDebugLocalResources
+> Task :expo-pdf-text-extract:processDebugManifest
+> Task :expo-pdf-text-extract:parseDebugLocalResources
+> Task :expo-modules-core:generateDebugBuildConfig
+> Task :expo-pdf-text-extract:mergeDebugShaders
+> Task :expo-modules-core:javaPreCompileDebug
+> Task :expo-pdf-text-extract:compileDebugShaders NO-SOURCE
+> Task :expo-pdf-text-extract:generateDebugAssets UP-TO-DATE
+> Task :expo-modules-core:mergeDebugShaders
+> Task :expo-modules-core:compileDebugShaders NO-SOURCE
+> Task :expo-modules-core:generateDebugAssets UP-TO-DATE
+> Task :expo-pdf-text-extract:mergeDebugAssets
+> Task :expo-modules-core:mergeDebugAssets
+> Task :expo-pdf-text-extract:mergeDebugJniLibFolders
+> Task :expo-pdf-text-extract:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-modules-core:generateDebugRFile
+> Task :expo-pdf-text-extract:copyDebugJniLibsProjectOnly
+> Task :expo-pdf-text-extract:stripDebugDebugSymbols NO-SOURCE
+> Task :expo-pdf-text-extract:extractDeepLinksForAarDebug
+> Task :expo-pdf-text-extract:prepareDebugArtProfile
+> Task :expo-pdf-text-extract:generateDebugRFile
+> Task :expo-pdf-text-extract:copyDebugJniLibsProjectAndLocalJars
+> Task :expo-pdf-text-extract:prepareLintJarForPublish
+> Task :react-native-reanimated:assertWorkletsVersionTask
+
+> Task :expo-constants:createExpoConfig
+The NODE_ENV environment variable is required but was not specified. Ensure the project is bundled with Expo CLI or NODE_ENV is set. Using only .env.local and .env
+
+> Task :expo-constants:preBuild
+> Task :expo-constants:preDebugBuild
+> Task :expo-constants:writeDebugAarMetadata
+> Task :expo-constants:generateDebugResValues
+> Task :expo-constants:generateDebugResources
+> Task :expo-constants:packageDebugResources
+> Task :expo-constants:extractDeepLinksDebug
+> Task :expo-constants:compileDebugLibraryResources
+> Task :expo-constants:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-constants:parseDebugLocalResources
+> Task :expo-constants:generateDebugBuildConfig
+> Task :expo-constants:javaPreCompileDebug
+> Task :expo-constants:processDebugManifest
+> Task :expo-constants:mergeDebugShaders
+> Task :expo-constants:compileDebugShaders NO-SOURCE
+> Task :expo-constants:generateDebugAssets UP-TO-DATE
+> Task :expo-constants:mergeDebugAssets
+> Task :expo-constants:generateDebugRFile
+> Task :expo-constants:mergeDebugJniLibFolders
+> Task :expo-constants:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-constants:stripDebugDebugSymbols NO-SOURCE
+> Task :expo-constants:copyDebugJniLibsProjectOnly
+> Task :expo:generatePackagesList
+> Task :expo:preBuild
+> Task :expo-constants:copyDebugJniLibsProjectAndLocalJars
+> Task :expo:preDebugBuild
+> Task :expo-constants:extractDeepLinksForAarDebug
+> Task :react-native-safe-area-context:generateCodegenSchemaFromJavaScript
+> Task :react-native-gesture-handler:generateCodegenSchemaFromJavaScript
+> Task :expo-constants:prepareDebugArtProfile
+> Task :expo:writeDebugAarMetadata
+> Task :expo-constants:prepareLintJarForPublish
+> Task :expo:generateDebugResValues
+> Task :expo:generateDebugResources
+> Task :expo:packageDebugResources
+> Task :react-native-worklets:generateCodegenSchemaFromJavaScript
+> Task :expo:extractDeepLinksDebug
+> Task :expo:compileDebugLibraryResources
+> Task :expo:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo:parseDebugLocalResources
+> Task :expo:generateDebugBuildConfig
+> Task :expo:javaPreCompileDebug
+> Task :expo:mergeDebugShaders
+> Task :expo:compileDebugShaders NO-SOURCE
+> Task :expo:generateDebugAssets UP-TO-DATE
+> Task :expo:processDebugManifest
+> Task :expo:mergeDebugAssets
+> Task :expo:mergeDebugJniLibFolders
+> Task :expo:mergeDebugNativeLibs NO-SOURCE
+> Task :expo:generateDebugRFile
+> Task :expo:copyDebugJniLibsProjectOnly
+> Task :expo:stripDebugDebugSymbols NO-SOURCE
+> Task :expo:copyDebugJniLibsProjectAndLocalJars
+> Task :react-native-reanimated:generateCodegenSchemaFromJavaScript
+> Task :expo:extractDeepLinksForAarDebug
+> Task :expo:prepareDebugArtProfile
+> Task :expo:prepareLintJarForPublish
+> Task :react-native-screens:generateCodegenSchemaFromJavaScript
+> Task :expo-modules-core:configureCMakeDebug[arm64-v8a] FAILED
+> Task :react-native-worklets:generateCodegenArtifactsFromSchema
+> Task :react-native-reanimated:generateCodegenArtifactsFromSchema
+> Task :react-native-safe-area-context:generateCodegenArtifactsFromSchema
+> Task :react-native-gesture-handler:generateCodegenArtifactsFromSchema
+> Task :react-native-screens:generateCodegenArtifactsFromSchema
+
+[Incubating] Problems report is available at: file:///C:/Projects/hive-mind/android/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':expo-modules-core:configureCMakeDebug[arm64-v8a]'.
+> WARNING: A restricted method in java.lang.System has been called
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 11s
+113 actionable tasks: 93 executed, 20 up-to-date

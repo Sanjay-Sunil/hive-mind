@@ -4,6 +4,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { CyberTheme as T } from '../constants/CyberTheme';
 import { getDocuments, pickAndSaveDocument, deleteDocument } from '../src/database/database';
+import { processDocument } from '../src/engine/processor';
+import HiveModal from '../components/HiveModal';
 
 type DocRow = {
   id: number;
@@ -20,6 +22,14 @@ export default function AddFiles() {
   const [files, setFiles] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
+  // Track which document is currently being processed (by id)
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  // Modal state
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalVariant, setModalVariant] = useState<'info' | 'danger' | 'success'>('info');
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
 
   // Load existing documents for this space (in case user comes back)
   const loadDocs = async () => {
@@ -85,6 +95,26 @@ export default function AddFiles() {
     }
   };
 
+  const handleProcess = async (item: DocRow) => {
+    if (processingId !== null) return; // Don't queue multiple at once
+    setProcessingId(item.id);
+    try {
+      const result = await processDocument(item.local_uri, item.id);
+      setModalVariant('success');
+      setModalTitle('Processing Complete');
+      setModalMessage(`"${item.file_name}" was chunked into ${result.savedChunks} segments and saved to the database.`);
+      setModalVisible(true);
+    } catch (err: any) {
+      console.error('[AddFiles] Processing error:', err);
+      setModalVariant('danger');
+      setModalTitle('Processing Failed');
+      setModalMessage(err?.message || 'An unexpected error occurred during PDF processing.');
+      setModalVisible(true);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   const handleFinish = () => {
     router.push({
       pathname: '/processing',
@@ -114,7 +144,7 @@ export default function AddFiles() {
 
       {/* Space name badge */}
       <View style={styles.spaceBadge}>
-        <Text style={styles.spaceBadgeText}>📂 {spaceName}</Text>
+        <Text style={styles.spaceBadgeText}>{spaceName}</Text>
       </View>
 
       {/* Add file button */}
@@ -176,9 +206,25 @@ export default function AddFiles() {
                 >
                   {file.file_name}
                 </Text>
+                {/* Process Document Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.processButton,
+                    processingId === file.id && styles.processButtonActive,
+                  ]}
+                  onPress={() => handleProcess(file)}
+                  disabled={processingId !== null}
+                >
+                  {processingId === file.id ? (
+                    <ActivityIndicator size="small" color={T.colors.accentLight} />
+                  ) : (
+                    <Text style={styles.processText}>⚡</Text>
+                  )}
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.removeButton}
                   onPress={() => handleRemove(file.id)}
+                  disabled={processingId !== null}
                 >
                   <Text style={styles.removeText}>✕</Text>
                 </TouchableOpacity>
@@ -199,6 +245,22 @@ export default function AddFiles() {
           <Text style={styles.finishArrow}>→</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Branded Modal */}
+      <HiveModal
+        visible={modalVisible}
+        variant={modalVariant}
+        title={modalTitle}
+        message={modalMessage}
+        buttons={[
+          {
+            text: 'OK',
+            style: 'default',
+            onPress: () => setModalVisible(false),
+          },
+        ]}
+        onDismiss={() => setModalVisible(false)}
+      />
     </View>
   );
 }
@@ -368,6 +430,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     marginRight: T.spacing.md,
+  },
+  processButton: {
+    width: 34,
+    height: 34,
+    borderRadius: T.radius.full,
+    backgroundColor: T.colors.accentSoft,
+    borderWidth: 1,
+    borderColor: T.colors.borderAccent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: T.spacing.sm,
+  },
+  processButtonActive: {
+    borderColor: T.colors.accent,
+    backgroundColor: 'rgba(124, 58, 237, 0.25)',
+  },
+  processText: {
+    fontSize: 14,
   },
   removeButton: {
     width: 30,

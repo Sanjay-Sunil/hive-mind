@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TextInput,
   ScrollView,
+  FlatList,
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
@@ -16,13 +17,28 @@ import {
   getMessages,
   saveMessage,
   getDocuments,
+  getChunksForSpace,
 } from '../src/database/database';
+
+// ─── Types ───────────────────────────────────────────────
 
 type Message = {
   id: number | string;
   role: 'user' | 'bot';
   content: string;
 };
+
+type Chunk = {
+  id: number;
+  text_content: string;
+  file_name: string;
+};
+
+// ─── Tab indicator ───────────────────────────────────────
+
+type Tab = 'chat' | 'debug';
+
+// ─── Screen ──────────────────────────────────────────────
 
 export default function Chat() {
   const router = useRouter();
@@ -34,12 +50,19 @@ export default function Chat() {
   const scrollRef = useRef<ScrollView>(null);
   const numericSpaceId = spaceId ? Number(spaceId) : null;
 
+  // ── Chat state ──
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [docCount, setDocCount] = useState(0);
 
-  // Load chat history + document info on mount
+  // ── Debug / chunk inspector state ──
+  const [activeTab, setActiveTab] = useState<Tab>('chat');
+  const [debugQuery, setDebugQuery] = useState('');
+  const [chunks, setChunks] = useState<Chunk[]>([]);
+  const [chunksLoading, setChunksLoading] = useState(false);
+
+  // ── Load chat history on mount ──
   useEffect(() => {
     (async () => {
       try {
@@ -48,15 +71,12 @@ export default function Chat() {
           return;
         }
 
-        // Load documents for header info
         const docs = await getDocuments(numericSpaceId);
         setDocCount(docs.length);
 
-        // Load existing messages from DB
         const dbMessages = (await getMessages(numericSpaceId)) as any[];
 
         if (dbMessages.length > 0) {
-          // Existing conversation — restore it
           setMessages(
             dbMessages.map((m) => ({
               id: m.id,
@@ -65,16 +85,17 @@ export default function Chat() {
             }))
           );
         } else {
-          // Brand-new space — generate initial system message
           const parsedFiles: string[] = files ? JSON.parse(files) : [];
-          const fileNames = parsedFiles.length > 0 ? parsedFiles : docs.map((d: any) => d.file_name);
+          const fileNames =
+            parsedFiles.length > 0 ? parsedFiles : docs.map((d: any) => d.file_name);
 
           const welcomeText =
             fileNames.length > 0
-              ? `✨ Space "${spaceName || 'Unknown'}" is ready!\n\n📎 ${fileNames.length} file(s) loaded:\n${fileNames.map((f: string) => `  • ${f}`).join('\n')}\n\nYou can now ask questions about your documents.`
+              ? `✨ Space "${spaceName || 'Unknown'}" is ready!\n\n📎 ${fileNames.length} file(s) loaded:\n${fileNames
+                  .map((f: string) => `  • ${f}`)
+                  .join('\n')}\n\nYou can now ask questions about your documents.`
               : `✨ Space "${spaceName || 'Unknown'}" is ready!\n\nNo files were added. You can still use this space for general conversation.`;
 
-          // Save the welcome message to DB
           const msgId = await saveMessage(numericSpaceId, 'bot', welcomeText);
           setMessages([{ id: msgId, role: 'bot', content: welcomeText }]);
         }
@@ -92,69 +113,99 @@ export default function Chat() {
     }, 100);
   }, [messages]);
 
+  // ── Send chat message ──
   const handleSend = async () => {
     if (!inputText.trim() || !numericSpaceId) return;
 
     const text = inputText.trim();
     setInputText('');
 
-    // Save user message to DB and update state
     try {
       const userMsgId = await saveMessage(numericSpaceId, 'user', text);
       const userMsg: Message = { id: userMsgId, role: 'user', content: text };
       setMessages((prev) => [...prev, userMsg]);
 
-      // Simulate bot response + save to DB
       setTimeout(async () => {
         const botText =
           "I'm analyzing your documents to find relevant information. This is a demo response — backend integration coming soon! 🚀";
         const botMsgId = await saveMessage(numericSpaceId, 'bot', botText);
-        setMessages((prev) => [
-          ...prev,
-          { id: botMsgId, role: 'bot', content: botText },
-        ]);
+        setMessages((prev) => [...prev, { id: botMsgId, role: 'bot', content: botText }]);
       }, 1200);
     } catch (e) {
       console.error('Failed to send message:', e);
     }
   };
 
-  return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.replace('/')}
-        >
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
+  // ── Debug: fetch all chunks for this space ──
+  const handleTestSearch = async () => {
+    if (!numericSpaceId) return;
+    setChunksLoading(true);
+    try {
+      const rows = (await getChunksForSpace(numericSpaceId)) as Chunk[];
+      setChunks(rows);
+    } catch (e) {
+      console.error('Failed to fetch chunks:', e);
+    } finally {
+      setChunksLoading(false);
+    }
+  };
 
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {spaceName || 'Space Name'}
+  // ─── Header ───────────────────────────────────────────
+
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <TouchableOpacity style={styles.backBtn} onPress={() => router.replace('/')}>
+        <Text style={styles.backIcon}>←</Text>
+      </TouchableOpacity>
+
+      <View style={styles.headerCenter}>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {spaceName || 'Space Name'}
+        </Text>
+        <View style={styles.headerMeta}>
+          <View style={styles.onlineDot} />
+          <Text style={styles.headerSub}>
+            {docCount} file{docCount !== 1 ? 's' : ''} loaded
           </Text>
-          <View style={styles.headerMeta}>
-            <View style={styles.onlineDot} />
-            <Text style={styles.headerSub}>
-              {docCount} file{docCount !== 1 ? 's' : ''} loaded
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.headerRight}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoDot} />
-            <View style={[styles.logoDot, { backgroundColor: T.colors.accentLight }]} />
-          </View>
         </View>
       </View>
 
-      {/* Messages */}
+      <View style={styles.headerRight}>
+        <View style={styles.logoContainer}>
+          <View style={styles.logoDot} />
+          <View style={[styles.logoDot, { backgroundColor: T.colors.accentLight }]} />
+        </View>
+      </View>
+    </View>
+  );
+
+  // ─── Tab Bar ──────────────────────────────────────────
+
+  const renderTabBar = () => (
+    <View style={styles.tabBar}>
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'chat' && styles.tabActive]}
+        onPress={() => setActiveTab('chat')}
+      >
+        <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>
+          💬 Chat
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'debug' && styles.tabActive]}
+        onPress={() => setActiveTab('debug')}
+      >
+        <Text style={[styles.tabText, activeTab === 'debug' && styles.tabTextActive]}>
+          🔬 Chunk Inspector
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // ─── Chat Tab ─────────────────────────────────────────
+
+  const renderChatTab = () => (
+    <>
       {loading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={T.colors.accent} />
@@ -171,9 +222,7 @@ export default function Chat() {
               key={msg.id.toString()}
               style={[
                 styles.messageBubble,
-                msg.role === 'user'
-                  ? styles.userBubble
-                  : styles.systemBubble,
+                msg.role === 'user' ? styles.userBubble : styles.systemBubble,
               ]}
             >
               {msg.role === 'bot' && (
@@ -182,10 +231,7 @@ export default function Chat() {
                 </View>
               )}
               <Text
-                style={[
-                  styles.messageText,
-                  msg.role === 'user' && styles.userMessageText,
-                ]}
+                style={[styles.messageText, msg.role === 'user' && styles.userMessageText]}
               >
                 {msg.content}
               </Text>
@@ -194,7 +240,7 @@ export default function Chat() {
         </ScrollView>
       )}
 
-      {/* Input */}
+      {/* Chat input */}
       <View style={styles.inputBar}>
         <View style={styles.inputWrap}>
           <TextInput
@@ -208,10 +254,7 @@ export default function Chat() {
             multiline={false}
           />
           <TouchableOpacity
-            style={[
-              styles.sendButton,
-              !inputText.trim() && styles.sendButtonDisabled,
-            ]}
+            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
             activeOpacity={0.7}
             onPress={handleSend}
             disabled={!inputText.trim()}
@@ -220,15 +263,117 @@ export default function Chat() {
           </TouchableOpacity>
         </View>
       </View>
+    </>
+  );
+
+  // ─── Debug Tab ────────────────────────────────────────
+
+  const renderChunkCard = ({ item, index }: { item: Chunk; index: number }) => (
+    <View style={styles.chunkCard}>
+      <View style={styles.chunkHeader}>
+        <View style={styles.chunkBadge}>
+          <Text style={styles.chunkBadgeText}>#{index + 1}</Text>
+        </View>
+        <Text style={styles.chunkFileName} numberOfLines={1}>
+          {item.file_name}
+        </Text>
+        <Text style={styles.chunkWordCount}>
+          {item.text_content.split(' ').length}w
+        </Text>
+      </View>
+      <Text style={styles.chunkText}>{item.text_content}</Text>
+      {/* Overlap hint: first ~30 words are shared with previous chunk */}
+      {index > 0 && (
+        <View style={styles.overlapBar}>
+          <Text style={styles.overlapLabel}>⟵ 30-word overlap with previous chunk</Text>
+        </View>
+      )}
+    </View>
+  );
+
+  const renderDebugTab = () => (
+    <View style={styles.debugContainer}>
+      {/* Search row */}
+      <View style={styles.debugSearchRow}>
+        <TextInput
+          style={styles.debugInput}
+          placeholder="Enter a query (unused for now)..."
+          placeholderTextColor={T.colors.mutedText}
+          value={debugQuery}
+          onChangeText={setDebugQuery}
+        />
+        <TouchableOpacity
+          style={styles.testSearchBtn}
+          onPress={handleTestSearch}
+          activeOpacity={0.8}
+        >
+          {chunksLoading ? (
+            <ActivityIndicator size="small" color="#FFF" />
+          ) : (
+            <Text style={styles.testSearchText}>Test Search</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Stats */}
+      {chunks.length > 0 && (
+        <View style={styles.debugStats}>
+          <Text style={styles.debugStatsText}>
+            📦 {chunks.length} chunk{chunks.length !== 1 ? 's' : ''} found in this space
+          </Text>
+        </View>
+      )}
+
+      {/* Chunk list */}
+      {chunksLoading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={T.colors.accent} />
+          <Text style={styles.loadingText}>Fetching chunks from database…</Text>
+        </View>
+      ) : chunks.length === 0 ? (
+        <View style={styles.debugEmptyState}>
+          <Text style={styles.debugEmptyIcon}>🗃️</Text>
+          <Text style={styles.debugEmptyTitle}>No chunks yet</Text>
+          <Text style={styles.debugEmptyHint}>
+            Go to the Add Files screen, tap ⚡ next to a document, then press "Test Search".
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={chunks}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderChunkCard}
+          contentContainerStyle={styles.chunkList}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+    </View>
+  );
+
+  // ─── Render ───────────────────────────────────────────
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}
+    >
+      {renderHeader()}
+      {renderTabBar()}
+      {activeTab === 'chat' ? renderChatTab() : renderDebugTab()}
     </KeyboardAvoidingView>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: T.colors.background,
   },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -253,9 +398,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  headerCenter: {
-    flex: 1,
-  },
+  headerCenter: { flex: 1 },
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -274,31 +417,58 @@ const styles = StyleSheet.create({
     borderRadius: T.radius.full,
     backgroundColor: T.colors.success,
   },
-  headerSub: {
-    fontSize: 12,
-    color: T.colors.mutedText,
-  },
-  headerRight: {
-    marginLeft: T.spacing.md,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    gap: 4,
-  },
+  headerSub: { fontSize: 12, color: T.colors.mutedText },
+  headerRight: { marginLeft: T.spacing.md },
+  logoContainer: { flexDirection: 'row', gap: 4 },
   logoDot: {
     width: 8,
     height: 8,
     borderRadius: T.radius.full,
     backgroundColor: T.colors.accent,
   },
+
+  // Tab bar
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: T.colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: T.colors.border,
+    paddingHorizontal: T.spacing.lg,
+    paddingBottom: 0,
+    gap: T.spacing.md,
+  },
+  tab: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: T.colors.accent,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: T.colors.mutedText,
+  },
+  tabTextActive: {
+    color: T.colors.accentLight,
+  },
+
+  // Loading
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: T.spacing.md,
   },
-  chatArea: {
-    flex: 1,
+  loadingText: {
+    color: T.colors.mutedText,
+    fontSize: 14,
   },
+
+  // ── Chat ──
+  chatArea: { flex: 1 },
   chatContent: {
     padding: T.spacing.lg,
     paddingBottom: T.spacing.md,
@@ -340,9 +510,7 @@ const styles = StyleSheet.create({
     color: T.colors.bodyText,
     lineHeight: 23,
   },
-  userMessageText: {
-    color: '#FFFFFF',
-  },
+  userMessageText: { color: '#FFFFFF' },
   inputBar: {
     paddingHorizontal: T.spacing.lg,
     paddingTop: T.spacing.md,
@@ -375,12 +543,137 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendButtonDisabled: {
-    backgroundColor: T.colors.border,
+  sendButtonDisabled: { backgroundColor: T.colors.border },
+  sendIcon: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+
+  // ── Debug / Chunk Inspector ──
+  debugContainer: {
+    flex: 1,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.lg,
   },
-  sendIcon: {
-    color: '#FFFFFF',
+  debugSearchRow: {
+    flexDirection: 'row',
+    gap: T.spacing.sm,
+    marginBottom: T.spacing.md,
+  },
+  debugInput: {
+    flex: 1,
+    backgroundColor: T.colors.cardElevated,
+    borderWidth: 1,
+    borderColor: T.colors.border,
+    borderRadius: T.radius.md,
+    paddingHorizontal: T.spacing.md,
+    paddingVertical: 12,
+    color: T.colors.primaryText,
+    fontSize: 14,
+  },
+  testSearchBtn: {
+    backgroundColor: T.colors.accent,
+    borderRadius: T.radius.md,
+    paddingHorizontal: T.spacing.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 100,
+  },
+  testSearchText: {
+    color: '#FFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  debugStats: {
+    backgroundColor: T.colors.accentSoft,
+    borderRadius: T.radius.sm,
+    paddingHorizontal: T.spacing.md,
+    paddingVertical: T.spacing.sm,
+    marginBottom: T.spacing.md,
+    borderWidth: 1,
+    borderColor: T.colors.borderAccent,
+  },
+  debugStatsText: {
+    color: T.colors.accentLight,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  debugEmptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: T.spacing.xl,
+  },
+  debugEmptyIcon: { fontSize: 48, marginBottom: T.spacing.md },
+  debugEmptyTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: T.colors.secondaryText,
+    marginBottom: T.spacing.sm,
+  },
+  debugEmptyHint: {
+    fontSize: 14,
+    color: T.colors.mutedText,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+
+  // Chunk cards
+  chunkList: {
+    paddingBottom: T.spacing.xxl,
+  },
+  chunkCard: {
+    backgroundColor: T.colors.card,
+    borderRadius: T.radius.md,
+    borderWidth: 1,
+    borderColor: T.colors.border,
+    padding: T.spacing.md,
+    marginBottom: T.spacing.md,
+  },
+  chunkHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: T.spacing.sm,
+    gap: T.spacing.sm,
+  },
+  chunkBadge: {
+    backgroundColor: T.colors.accentSoft,
+    borderRadius: T.radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  chunkBadgeText: {
+    color: T.colors.accentLight,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  chunkFileName: {
+    flex: 1,
+    color: T.colors.secondaryText,
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+  chunkWordCount: {
+    color: T.colors.blue,
+    fontSize: 11,
+    fontWeight: '600',
+    backgroundColor: T.colors.blueSoft,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: T.radius.sm,
+    overflow: 'hidden',
+  },
+  chunkText: {
+    fontSize: 13,
+    color: T.colors.bodyText,
+    lineHeight: 20,
+  },
+  overlapBar: {
+    marginTop: T.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(124, 58, 237, 0.2)',
+    paddingTop: T.spacing.sm,
+  },
+  overlapLabel: {
+    fontSize: 11,
+    color: T.colors.mutedText,
+    fontStyle: 'italic',
   },
 });
