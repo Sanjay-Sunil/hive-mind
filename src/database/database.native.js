@@ -237,3 +237,18 @@ export const getChunksForSpace = async (spaceId) => {
   );
   return rows;
 };
+
+/**
+ * Returns the number of chunks for a specific document.
+ * Used to determine if a document has already been processed.
+ */
+export const getChunkCountForDocument = async (documentId) => {
+  const database = getDB();
+  if (!database) throw new Error('DB not initialized');
+
+  const result = await database.getFirstAsync(
+    'SELECT COUNT(*) as count FROM chunks WHERE document_id = ?',
+    [documentId]
+  );
+  return result?.count || 0;
+};

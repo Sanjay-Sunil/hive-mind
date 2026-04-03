@@ -1,9 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Text,
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Animated,
+  Easing,
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { CyberTheme as T } from '../constants/CyberTheme';
-import { getDocuments, pickAndSaveDocument, deleteDocument } from '../src/database/database';
+import {
+  getDocuments,
+  pickAndSaveDocument,
+  deleteDocument,
+  getChunkCountForDocument,
+} from '../src/database/database';
 import { processDocument } from '../src/engine/processor';
 import HiveModal from '../components/HiveModal';
 
@@ -22,8 +36,17 @@ export default function AddFiles() {
   const [files, setFiles] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
-  // Track which document is currently being processed (by id)
-  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  // Processed document tracking: Set of document IDs that already have chunks
+  const [processedIds, setProcessedIds] = useState<Set<number>>(new Set());
+
+  // Batch processing state
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+  const [currentProcessingFile, setCurrentProcessingFile] = useState<string | null>(null);
+  const [processProgress, setProcessProgress] = useState({ done: 0, total: 0 });
+
+  // Spinner animation for processing overlay
+  const spinAnim = useRef(new Animated.Value(0)).current;
 
   // Modal state
   const [modalVisible, setModalVisible] = useState(false);
@@ -31,11 +54,37 @@ export default function AddFiles() {
   const [modalTitle, setModalTitle] = useState('');
   const [modalMessage, setModalMessage] = useState('');
 
-  // Load existing documents for this space (in case user comes back)
+  // ── Spinner loop ──
+  useEffect(() => {
+    if (isBatchProcessing) {
+      const loop = Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      spinAnim.setValue(0);
+    }
+  }, [isBatchProcessing]);
+
+  // ── Load documents and their processed status ──
   const loadDocs = async () => {
     try {
       const docs = (await getDocuments(numericSpaceId)) as DocRow[];
       setFiles(docs);
+
+      // Check which documents already have chunks (processed)
+      const processed = new Set<number>();
+      for (const doc of docs) {
+        const count = await getChunkCountForDocument(doc.id);
+        if (count > 0) processed.add(doc.id);
+      }
+      setProcessedIds(processed);
     } catch (e) {
       console.error('Failed to load docs:', e);
     } finally {
@@ -47,19 +96,19 @@ export default function AddFiles() {
     loadDocs();
   }, []);
 
+  // ── Pick files ──
   const handlePick = async () => {
-    if (picking) return;
+    if (picking || isBatchProcessing) return;
     setPicking(true);
 
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/pdf',
         multiple: true,
-        copyToCacheDirectory: true, // Need cache copy first for FileSystem.copyAsync
+        copyToCacheDirectory: true,
       });
 
       if (!result.canceled && result.assets) {
-        // Process each picked asset: temp → permanent + save to DB
         for (const asset of result.assets) {
           try {
             const saved = await pickAndSaveDocument(numericSpaceId, asset);
@@ -86,33 +135,70 @@ export default function AddFiles() {
     }
   };
 
+  // ── Remove file ──
   const handleRemove = async (docId: number) => {
+    if (isBatchProcessing) return;
     try {
       await deleteDocument(docId);
       setFiles((prev) => prev.filter((f) => f.id !== docId));
+      setProcessedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
     } catch (e) {
       console.error('Failed to delete document:', e);
     }
   };
 
-  const handleProcess = async (item: DocRow) => {
-    if (processingId !== null) return; // Don't queue multiple at once
-    setProcessingId(item.id);
-    try {
-      const result = await processDocument(item.local_uri, item.id);
+  // ── Batch process all unprocessed files ──
+  const handleProcessAll = async () => {
+    const unprocessed = files.filter((f) => !processedIds.has(f.id));
+    if (unprocessed.length === 0) return;
+
+    setIsBatchProcessing(true);
+    setProcessProgress({ done: 0, total: unprocessed.length });
+
+    let successCount = 0;
+    let failCount = 0;
+    let totalChunks = 0;
+
+    for (let i = 0; i < unprocessed.length; i++) {
+      const item = unprocessed[i];
+      setCurrentProcessingFile(item.file_name);
+      setProcessProgress({ done: i, total: unprocessed.length });
+
+      try {
+        const result = await processDocument(item.local_uri, item.id);
+        totalChunks += result.savedChunks;
+        successCount++;
+        // Mark as processed immediately
+        setProcessedIds((prev) => new Set(prev).add(item.id));
+      } catch (err: any) {
+        console.error(`[AddFiles] Failed to process "${item.file_name}":`, err);
+        failCount++;
+      }
+    }
+
+    setIsBatchProcessing(false);
+    setCurrentProcessingFile(null);
+    setProcessProgress({ done: 0, total: 0 });
+
+    // Show summary modal
+    if (failCount === 0) {
       setModalVariant('success');
       setModalTitle('Processing Complete');
-      setModalMessage(`"${item.file_name}" was chunked into ${result.savedChunks} segments and saved to the database.`);
-      setModalVisible(true);
-    } catch (err: any) {
-      console.error('[AddFiles] Processing error:', err);
+      setModalMessage(
+        `All ${successCount} file${successCount !== 1 ? 's' : ''} processed successfully.\n\n${totalChunks} total segments extracted and saved.`
+      );
+    } else {
       setModalVariant('danger');
-      setModalTitle('Processing Failed');
-      setModalMessage(err?.message || 'An unexpected error occurred during PDF processing.');
-      setModalVisible(true);
-    } finally {
-      setProcessingId(null);
+      setModalTitle('Processing Finished');
+      setModalMessage(
+        `${successCount} file${successCount !== 1 ? 's' : ''} processed, ${failCount} failed.\n\n${totalChunks} segments saved. Failed files can be retried.`
+      );
     }
+    setModalVisible(true);
   };
 
   const handleFinish = () => {
@@ -126,11 +212,68 @@ export default function AddFiles() {
     });
   };
 
+  // ── Derived state ──
+  const unprocessedCount = files.filter((f) => !processedIds.has(f.id)).length;
+  const allProcessed = files.length > 0 && unprocessedCount === 0;
+
+  // Spinner interpolation
+  const spinInterpolation = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   return (
     <View style={styles.container}>
+      {/* ── Processing Overlay ── */}
+      {isBatchProcessing && (
+        <View style={styles.processingOverlay}>
+          <View style={styles.processingCard}>
+            {/* Spinning icon */}
+            <Animated.View
+              style={[
+                styles.spinnerWrap,
+                { transform: [{ rotate: spinInterpolation }] },
+              ]}
+            >
+              <View style={styles.spinnerDot} />
+              <View style={[styles.spinnerDot, styles.spinnerDot2]} />
+            </Animated.View>
+
+            <Text style={styles.processingTitle}>Processing Documents</Text>
+            <Text style={styles.processingWarning}>
+              Please do not close the app while processing is in progress.
+            </Text>
+
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width:
+                      processProgress.total > 0
+                        ? `${(processProgress.done / processProgress.total) * 100}%`
+                        : '0%',
+                  },
+                ]}
+              />
+            </View>
+
+            <Text style={styles.processingStatus}>
+              {processProgress.done} / {processProgress.total} completed
+            </Text>
+
+            {currentProcessingFile && (
+              <Text style={styles.processingFilename} numberOfLines={1}>
+                {currentProcessingFile}
+              </Text>
+            )}
+          </View>
+        </View>
+      )}
+
       {/* Back button */}
-      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-        <Text style={styles.backText}>← Back</Text>
+      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} disabled={isBatchProcessing}>
+        <Text style={[styles.backText, isBatchProcessing && { opacity: 0.3 }]}>← Back</Text>
       </TouchableOpacity>
 
       {/* Header */}
@@ -149,10 +292,10 @@ export default function AddFiles() {
 
       {/* Add file button */}
       <TouchableOpacity
-        style={styles.addButton}
+        style={[styles.addButton, isBatchProcessing && { opacity: 0.4 }]}
         activeOpacity={0.7}
         onPress={handlePick}
-        disabled={picking}
+        disabled={picking || isBatchProcessing}
       >
         {picking ? (
           <ActivityIndicator size="small" color={T.colors.accent} style={{ marginRight: T.spacing.md }} />
@@ -163,7 +306,7 @@ export default function AddFiles() {
         )}
         <View>
           <Text style={styles.addButtonTitle}>
-            {picking ? 'Processing files...' : 'Add PDF File'}
+            {picking ? 'Importing files...' : 'Add PDF File'}
           </Text>
           <Text style={styles.addButtonSub}>
             {picking ? 'Copying to permanent storage' : 'Tap to browse your device'}
@@ -186,7 +329,9 @@ export default function AddFiles() {
           <ScrollView style={styles.fileList} showsVerticalScrollIndicator={false}>
             {files.length === 0 && (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyIcon}>📄</Text>
+                <View style={styles.emptyIconWrap}>
+                  <Text style={styles.emptyIconChar}>P</Text>
+                </View>
                 <Text style={styles.emptyText}>No files selected yet</Text>
                 <Text style={styles.emptyHint}>
                   Tap the button above to pick PDF documents
@@ -194,56 +339,79 @@ export default function AddFiles() {
               </View>
             )}
 
-            {files.map((file) => (
-              <View key={file.id.toString()} style={styles.fileRow}>
-                <View style={styles.fileIconWrap}>
-                  <Text style={styles.fileIcon}>📄</Text>
-                </View>
-                <Text
-                  style={styles.fileName}
-                  numberOfLines={1}
-                  ellipsizeMode="middle"
-                >
-                  {file.file_name}
-                </Text>
-                {/* Process Document Button */}
-                <TouchableOpacity
+            {files.map((file) => {
+              const isProcessed = processedIds.has(file.id);
+              return (
+                <View
+                  key={file.id.toString()}
                   style={[
-                    styles.processButton,
-                    processingId === file.id && styles.processButtonActive,
+                    styles.fileRow,
+                    isProcessed && styles.fileRowProcessed,
                   ]}
-                  onPress={() => handleProcess(file)}
-                  disabled={processingId !== null}
                 >
-                  {processingId === file.id ? (
-                    <ActivityIndicator size="small" color={T.colors.accentLight} />
-                  ) : (
-                    <Text style={styles.processText}>⚡</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.removeButton}
-                  onPress={() => handleRemove(file.id)}
-                  disabled={processingId !== null}
-                >
-                  <Text style={styles.removeText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+                  <View
+                    style={[
+                      styles.fileIconWrap,
+                      isProcessed && styles.fileIconWrapProcessed,
+                    ]}
+                  >
+                    <Text style={[styles.fileIconChar, isProcessed && styles.fileIconCharProcessed]}>
+                      {isProcessed ? '✓' : 'P'}
+                    </Text>
+                  </View>
+                  <View style={styles.fileNameWrap}>
+                    <Text
+                      style={styles.fileName}
+                      numberOfLines={1}
+                      ellipsizeMode="middle"
+                    >
+                      {file.file_name}
+                    </Text>
+                    <Text style={[styles.fileStatus, isProcessed && styles.fileStatusDone]}>
+                      {isProcessed ? 'Processed' : 'Pending'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.removeButton}
+                    onPress={() => handleRemove(file.id)}
+                    disabled={isBatchProcessing}
+                  >
+                    <Text style={styles.removeText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
           </ScrollView>
         )}
       </View>
 
-      {/* CTA */}
+      {/* Bottom actions */}
       <View style={styles.bottom}>
-        <TouchableOpacity
-          style={styles.finishButton}
-          activeOpacity={0.8}
-          onPress={handleFinish}
-        >
-          <Text style={styles.finishText}>Let's finish processing</Text>
-          <Text style={styles.finishArrow}>→</Text>
-        </TouchableOpacity>
+        {/* Process All button — only shown when there are unprocessed files */}
+        {unprocessedCount > 0 && (
+          <TouchableOpacity
+            style={styles.processAllButton}
+            activeOpacity={0.8}
+            onPress={handleProcessAll}
+            disabled={isBatchProcessing}
+          >
+            <Text style={styles.processAllText}>
+              Process {unprocessedCount} file{unprocessedCount !== 1 ? 's' : ''}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Finish button — only when all files are processed */}
+        {allProcessed && (
+          <TouchableOpacity
+            style={styles.finishButton}
+            activeOpacity={0.8}
+            onPress={handleFinish}
+          >
+            <Text style={styles.finishText}>Continue</Text>
+            <Text style={styles.finishArrow}>→</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Branded Modal */}
@@ -264,6 +432,8 @@ export default function AddFiles() {
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
@@ -387,10 +557,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: T.spacing.xxl,
   },
-  emptyIcon: {
-    fontSize: 40,
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: T.radius.md,
+    backgroundColor: T.colors.blueSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: T.spacing.md,
-    opacity: 0.5,
+  },
+  emptyIconChar: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: T.colors.blue,
   },
   emptyText: {
     fontSize: 16,
@@ -402,6 +581,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: T.colors.mutedText,
   },
+
+  /* ── File rows ── */
   fileRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -412,6 +593,9 @@ const styles = StyleSheet.create({
     padding: T.spacing.md,
     marginBottom: T.spacing.sm,
   },
+  fileRowProcessed: {
+    borderColor: 'rgba(16, 185, 129, 0.2)',
+  },
   fileIconWrap: {
     width: 36,
     height: 36,
@@ -421,33 +605,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: T.spacing.md,
   },
-  fileIcon: {
-    fontSize: 18,
+  fileIconWrapProcessed: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  fileIconChar: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: T.colors.blue,
+  },
+  fileIconCharProcessed: {
+    color: T.colors.success,
+  },
+  fileNameWrap: {
+    flex: 1,
+    marginRight: T.spacing.md,
   },
   fileName: {
-    flex: 1,
     color: T.colors.primaryText,
     fontSize: 14,
     fontWeight: '500',
-    marginRight: T.spacing.md,
   },
-  processButton: {
-    width: 34,
-    height: 34,
-    borderRadius: T.radius.full,
-    backgroundColor: T.colors.accentSoft,
-    borderWidth: 1,
-    borderColor: T.colors.borderAccent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: T.spacing.sm,
+  fileStatus: {
+    fontSize: 11,
+    color: T.colors.mutedText,
+    marginTop: 2,
+    fontWeight: '500',
   },
-  processButtonActive: {
-    borderColor: T.colors.accent,
-    backgroundColor: 'rgba(124, 58, 237, 0.25)',
-  },
-  processText: {
-    fontSize: 14,
+  fileStatusDone: {
+    color: T.colors.success,
   },
   removeButton: {
     width: 30,
@@ -462,9 +647,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+
+  /* ── Bottom actions ── */
   bottom: {
     paddingBottom: T.spacing.xxl,
     paddingTop: T.spacing.md,
+    gap: 10,
+  },
+  processAllButton: {
+    backgroundColor: T.colors.cyan,
+    borderRadius: T.radius.md,
+    paddingVertical: 15,
+    paddingHorizontal: T.spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  processAllText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
   finishButton: {
     backgroundColor: T.colors.accent,
@@ -485,5 +686,89 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '600',
+  },
+
+  /* ── Processing overlay ── */
+  processingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    backgroundColor: 'rgba(0, 0, 0, 0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  processingCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: T.colors.card,
+    borderRadius: T.radius.lg,
+    borderWidth: 1,
+    borderColor: T.colors.border,
+    padding: 28,
+    alignItems: 'center',
+  },
+  spinnerWrap: {
+    width: 48,
+    height: 48,
+    marginBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spinnerDot: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: T.colors.accent,
+    top: 0,
+  },
+  spinnerDot2: {
+    top: 'auto' as any,
+    bottom: 0,
+    backgroundColor: T.colors.accentLight,
+  },
+  processingTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: T.colors.primaryText,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  processingWarning: {
+    fontSize: 13,
+    color: T.colors.danger,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  progressBar: {
+    width: '100%',
+    height: 6,
+    backgroundColor: T.colors.cardElevated,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: T.colors.accent,
+    borderRadius: 3,
+  },
+  processingStatus: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: T.colors.secondaryText,
+    marginBottom: 4,
+  },
+  processingFilename: {
+    fontSize: 12,
+    color: T.colors.mutedText,
+    fontStyle: 'italic',
+    maxWidth: '90%',
   },
 });
