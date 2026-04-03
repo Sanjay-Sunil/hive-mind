@@ -27,8 +27,8 @@ export default function CreateSpace() {
       const spaceId = await createSpace(spaceName.trim());
       console.log('Created space with id:', spaceId);
 
-      // Navigate to add-files, passing the real spaceId from DB
-      router.push({
+      // Navigate to add-files, passing the real spaceId from DB, using replace to prevent duplicate creation on back press
+      router.replace({
         pathname: '/add-files',
         params: { spaceId: spaceId.toString(), spaceName: spaceName.trim() },
       });

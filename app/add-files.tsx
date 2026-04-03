@@ -202,7 +202,7 @@ export default function AddFiles() {
   };
 
   const handleFinish = () => {
-    router.push({
+    router.replace({
       pathname: '/processing',
       params: {
         spaceId: spaceId,

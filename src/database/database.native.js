@@ -260,9 +260,13 @@ export const updateChunkEmbedding = async (chunkId, vectorBlob) => {
   const database = getDB();
   if (!database) throw new Error('DB not initialized');
 
+  // Expo SQLite requires Uint8Array for BLOB bindings. 
+  // If vectorBlob is a Float32Array (from AIEngine), we extract its raw byte buffer.
+  const blobData = vectorBlob.buffer ? new Uint8Array(vectorBlob.buffer) : vectorBlob;
+
   await database.runAsync(
     'UPDATE chunks SET vector_blob = ? WHERE id = ?',
-    [vectorBlob, chunkId]
+    [blobData, chunkId]
   );
 };
 
@@ -282,4 +286,21 @@ export const getUnembeddedChunks = async (spaceId) => {
     [spaceId]
   );
   return rows;
+};
+
+/**
+ * Fast check to see if a space has any unembedded chunks (needs processing).
+ */
+export const hasUnembeddedChunks = async (spaceId) => {
+  const database = getDB();
+  if (!database) return false;
+
+  const result = await database.getFirstAsync(
+    `SELECT 1 FROM chunks
+     INNER JOIN documents ON chunks.document_id = documents.id
+     WHERE documents.space_id = ? AND (chunks.vector_blob IS NULL OR length(chunks.vector_blob) = 0)
+     LIMIT 1`,
+    [spaceId]
+  );
+  return !!result;
 };

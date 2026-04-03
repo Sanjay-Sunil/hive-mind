@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { CyberTheme as T } from '../constants/CyberTheme';
-import { getSpaces, getDocumentCountForSpace, deleteSpace } from '../src/database/database';
+import { getSpaces, getDocumentCountForSpace, deleteSpace, hasUnembeddedChunks } from '../src/database/database';
 import HiveModal from '../components/HiveModal';
 
 const SPACE_ICONS = ['S', 'R', 'D', 'N', 'M', 'A', 'I', 'F', 'K', 'G'];
@@ -142,11 +142,12 @@ export default function Index() {
     try {
       setLoading(true);
       const rows = (await getSpaces()) as SpaceRow[];
-
+      
       const enriched = await Promise.all(
         rows.map(async (space) => {
           const docCount = await getDocumentCountForSpace(space.id);
-          return { ...space, docCount };
+          const needsProcessing = await hasUnembeddedChunks(space.id);
+          return { ...space, docCount, needsProcessing };
         })
       );
 
@@ -249,12 +250,19 @@ export default function Index() {
                   <SpaceCard
                     space={space}
                     index={index}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/chat',
-                        params: { spaceId: space.id, spaceName: space.title },
-                      })
-                    }
+                    onPress={() => {
+                      if ((space as any).needsProcessing) {
+                        router.push({
+                          pathname: '/processing',
+                          params: { spaceId: space.id, spaceName: space.title },
+                        });
+                      } else {
+                        router.push({
+                          pathname: '/chat',
+                          params: { spaceId: space.id, spaceName: space.title },
+                        });
+                      }
+                    }}
                     onRequestDelete={(s) => setDeleteTarget(s)}
                   />
                 </View>
