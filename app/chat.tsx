@@ -19,6 +19,7 @@ import {
   getDocuments,
   getChunksForSpace,
 } from '../src/database/database';
+import SearchEngine from '../src/engine/SearchEngine';
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -54,15 +55,19 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [docCount, setDocCount] = useState(0);
+  const [cacheReady, setCacheReady] = useState(false);
+  const [cacheSize, setCacheSize] = useState(0);
 
   // ── Debug / chunk inspector state ──
   const [activeTab, setActiveTab] = useState<Tab>('chat');
   const [debugQuery, setDebugQuery] = useState('');
   const [chunks, setChunks] = useState<Chunk[]>([]);
+  const [debugResults, setDebugResults] = useState<any[]>([]);
   const [chunksLoading, setChunksLoading] = useState(false);
 
-  // ── Load chat history on mount ──
+  // ── Load chat history + warm up SearchEngine cache on mount ──
   useEffect(() => {
     (async () => {
       try {
@@ -99,12 +104,24 @@ export default function Chat() {
           const msgId = await saveMessage(numericSpaceId, 'bot', welcomeText);
           setMessages([{ id: msgId, role: 'bot', content: welcomeText }]);
         }
+
+        // Warm up the SearchEngine vector cache in background
+        try {
+          const count = await SearchEngine.loadCache(numericSpaceId);
+          setCacheSize(count);
+          setCacheReady(true);
+        } catch (cacheErr) {
+          console.warn('[Chat] SearchEngine cache failed:', cacheErr);
+        }
       } catch (e) {
         console.error('Failed to load chat:', e);
       } finally {
         setLoading(false);
       }
     })();
+
+    // Cleanup cache when leaving the space
+    return () => { SearchEngine.clearCache(); };
   }, []);
 
   useEffect(() => {
@@ -113,38 +130,67 @@ export default function Chat() {
     }, 100);
   }, [messages]);
 
-  // ── Send chat message ──
+  // ── Send chat message → run hybrid search ──
   const handleSend = async () => {
     if (!inputText.trim() || !numericSpaceId) return;
 
     const text = inputText.trim();
     setInputText('');
+    setSearching(true);
 
     try {
+      // 1. Save & display user message
       const userMsgId = await saveMessage(numericSpaceId, 'user', text);
-      const userMsg: Message = { id: userMsgId, role: 'user', content: text };
-      setMessages((prev) => [...prev, userMsg]);
+      setMessages((prev) => [...prev, { id: userMsgId, role: 'user', content: text }]);
 
-      setTimeout(async () => {
-        const botText =
-          "I'm analyzing your documents to find relevant information. This is a demo response — backend integration coming soon! 🚀";
-        const botMsgId = await saveMessage(numericSpaceId, 'bot', botText);
-        setMessages((prev) => [...prev, { id: botMsgId, role: 'bot', content: botText }]);
-      }, 1200);
-    } catch (e) {
-      console.error('Failed to send message:', e);
+      // 2. Run hybrid search (worklet vector + SQLite keyword)
+      const results = await SearchEngine.search(text, numericSpaceId);
+
+      // 3. Format results as bot response
+      let botText: string;
+      if (results.length === 0) {
+        botText = `🔍 No relevant passages found for "${text}".\n\nTry rephrasing your query or using different keywords.`;
+      } else {
+        const header = `🔍 Found ${results.length} relevant passage${results.length !== 1 ? 's' : ''}:\n`;
+        const body = results.slice(0, 8).map((r: any, i: number) => {
+          const tag = r.source === 'keyword' ? '📌 Keyword' : `🧠 ${r.score.toFixed(2)}`;
+          const preview = r.text.length > 220 ? r.text.substring(0, 220) + '…' : r.text;
+          return `${i + 1}. [${tag}]  ${r.fileName}\n"${preview}"`;
+        }).join('\n\n');
+        botText = header + '\n' + body;
+      }
+
+      // 4. Save & display bot response
+      const botMsgId = await saveMessage(numericSpaceId, 'bot', botText);
+      setMessages((prev) => [...prev, { id: botMsgId, role: 'bot', content: botText }]);
+    } catch (e: any) {
+      console.error('Search failed:', e);
+      const errMsgId = await saveMessage(numericSpaceId, 'bot', `⚠️ Search error: ${e.message}`);
+      setMessages((prev) => [...prev, { id: errMsgId, role: 'bot', content: `⚠️ Search error: ${e.message}` }]);
+    } finally {
+      setSearching(false);
     }
   };
 
-  // ── Debug: fetch all chunks for this space ──
+  // ── Debug: hybrid search OR raw chunk dump ──
   const handleTestSearch = async () => {
     if (!numericSpaceId) return;
     setChunksLoading(true);
+    setDebugResults([]);
     try {
-      const rows = (await getChunksForSpace(numericSpaceId)) as Chunk[];
-      setChunks(rows);
+      if (debugQuery.trim().length > 0) {
+        // Run the real hybrid search and display scored results
+        const results = await SearchEngine.search(debugQuery.trim(), numericSpaceId);
+        setDebugResults(results);
+        setChunks([]);
+      } else {
+        // No query — fall back to raw chunk inspector
+        const rows = (await getChunksForSpace(numericSpaceId)) as Chunk[];
+        setChunks(rows);
+        setDebugResults([]);
+      }
     } catch (e) {
-      console.error('Failed to fetch chunks:', e);
+      console.error('Debug search failed:', e);
     } finally {
       setChunksLoading(false);
     }
@@ -163,9 +209,9 @@ export default function Chat() {
           {spaceName || 'Space Name'}
         </Text>
         <View style={styles.headerMeta}>
-          <View style={styles.onlineDot} />
+          <View style={[styles.onlineDot, cacheReady ? {} : { backgroundColor: T.colors.blue }]} />
           <Text style={styles.headerSub}>
-            {docCount} file{docCount !== 1 ? 's' : ''} loaded
+            {cacheReady ? `${cacheSize} chunks cached` : 'Loading vectors…'}
           </Text>
         </View>
       </View>
@@ -240,6 +286,14 @@ export default function Chat() {
         </ScrollView>
       )}
 
+      {/* Searching indicator */}
+      {searching && (
+        <View style={styles.searchingBar}>
+          <ActivityIndicator size="small" color={T.colors.accentLight} />
+          <Text style={styles.searchingText}>Searching knowledge base…</Text>
+        </View>
+      )}
+
       {/* Chat input */}
       <View style={styles.inputBar}>
         <View style={styles.inputWrap}>
@@ -252,14 +306,19 @@ export default function Chat() {
             onSubmitEditing={handleSend}
             returnKeyType="send"
             multiline={false}
+            editable={!searching}
           />
           <TouchableOpacity
-            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+            style={[styles.sendButton, (!inputText.trim() || searching) && styles.sendButtonDisabled]}
             activeOpacity={0.7}
             onPress={handleSend}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || searching}
           >
-            <Text style={styles.sendIcon}>↑</Text>
+            {searching ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Text style={styles.sendIcon}>↑</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -297,10 +356,12 @@ export default function Chat() {
       <View style={styles.debugSearchRow}>
         <TextInput
           style={styles.debugInput}
-          placeholder="Enter a query (unused for now)..."
+          placeholder="Type a query to test hybrid search…"
           placeholderTextColor={T.colors.mutedText}
           value={debugQuery}
           onChangeText={setDebugQuery}
+          onSubmitEditing={handleTestSearch}
+          returnKeyType="search"
         />
         <TouchableOpacity
           style={styles.testSearchBtn}
@@ -310,42 +371,105 @@ export default function Chat() {
           {chunksLoading ? (
             <ActivityIndicator size="small" color="#FFF" />
           ) : (
-            <Text style={styles.testSearchText}>Test Search</Text>
+            <Text style={styles.testSearchText}>
+              {debugQuery.trim() ? 'Search' : 'Dump'}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* Stats */}
-      {chunks.length > 0 && (
-        <View style={styles.debugStats}>
-          <Text style={styles.debugStatsText}>
-            📦 {chunks.length} chunk{chunks.length !== 1 ? 's' : ''} found in this space
+      {/* Hint */}
+      <Text style={styles.debugHint}>
+        {debugQuery.trim()
+          ? '🔀 Hybrid search: semantic + keyword, ranked by score'
+          : '📦 Leave blank to dump all raw chunks'}
+      </Text>
+
+      {/* Scored search results */}
+      {debugResults.length > 0 && (
+        <>
+          <View style={styles.debugStats}>
+            <Text style={styles.debugStatsText}>
+              ✅ {debugResults.length} result{debugResults.length !== 1 ? 's' : ''} found
+            </Text>
+          </View>
+          <FlatList
+            data={debugResults}
+            keyExtractor={(item) => item.id.toString()}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.chunkList}
+            renderItem={({ item, index }) => (
+              <View style={styles.chunkCard}>
+                <View style={styles.chunkHeader}>
+                  <View style={[
+                    styles.chunkBadge,
+                    item.source === 'keyword'
+                      ? { backgroundColor: 'rgba(59,130,246,0.15)' }
+                      : {},
+                  ]}>
+                    <Text style={[
+                      styles.chunkBadgeText,
+                      item.source === 'keyword' ? { color: T.colors.blue } : {},
+                    ]}>
+                      {item.source === 'keyword' ? '📌' : '🧠'} #{index + 1}
+                    </Text>
+                  </View>
+                  <Text style={styles.chunkFileName} numberOfLines={1}>
+                    {item.fileName}
+                  </Text>
+                  <Text style={[
+                    styles.chunkWordCount,
+                    item.source === 'keyword'
+                      ? { color: T.colors.blue, backgroundColor: T.colors.blueSoft }
+                      : {},
+                  ]}>
+                    {item.source === 'keyword' ? 'exact' : item.score.toFixed(3)}
+                  </Text>
+                </View>
+                <Text style={styles.chunkText}>{item.text}</Text>
+              </View>
+            )}
+          />
+        </>
+      )}
+
+      {/* Raw chunk dump (no query) */}
+      {chunks.length > 0 && debugResults.length === 0 && (
+        <>
+          <View style={styles.debugStats}>
+            <Text style={styles.debugStatsText}>
+              📦 {chunks.length} chunk{chunks.length !== 1 ? 's' : ''} in this space
+            </Text>
+          </View>
+          <FlatList
+            data={chunks}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={renderChunkCard}
+            contentContainerStyle={styles.chunkList}
+            showsVerticalScrollIndicator={false}
+          />
+        </>
+      )}
+
+      {/* Loading */}
+      {chunksLoading && (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={T.colors.accent} />
+          <Text style={styles.loadingText}>
+            {debugQuery.trim() ? 'Running hybrid search…' : 'Fetching chunks…'}
           </Text>
         </View>
       )}
 
-      {/* Chunk list */}
-      {chunksLoading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={T.colors.accent} />
-          <Text style={styles.loadingText}>Fetching chunks from database…</Text>
-        </View>
-      ) : chunks.length === 0 ? (
+      {/* Empty */}
+      {!chunksLoading && chunks.length === 0 && debugResults.length === 0 && (
         <View style={styles.debugEmptyState}>
           <Text style={styles.debugEmptyIcon}>🗃️</Text>
-          <Text style={styles.debugEmptyTitle}>No chunks yet</Text>
+          <Text style={styles.debugEmptyTitle}>Nothing to show</Text>
           <Text style={styles.debugEmptyHint}>
-            Go to the Add Files screen, tap ⚡ next to a document, then press "Test Search".
+            Type a query and tap Search — or leave blank and tap Dump to inspect all chunks.
           </Text>
         </View>
-      ) : (
-        <FlatList
-          data={chunks}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderChunkCard}
-          contentContainerStyle={styles.chunkList}
-          showsVerticalScrollIndicator={false}
-        />
       )}
     </View>
   );
@@ -555,7 +679,13 @@ const styles = StyleSheet.create({
   debugSearchRow: {
     flexDirection: 'row',
     gap: T.spacing.sm,
+    marginBottom: T.spacing.sm,
+  },
+  debugHint: {
+    fontSize: 12,
+    color: T.colors.mutedText,
     marginBottom: T.spacing.md,
+    fontStyle: 'italic',
   },
   debugInput: {
     flex: 1,
@@ -675,5 +805,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: T.colors.mutedText,
     fontStyle: 'italic',
+  },
+
+  // Searching indicator
+  searchingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: T.spacing.sm,
+    paddingVertical: T.spacing.sm,
+    backgroundColor: T.colors.accentSoft,
+    borderTopWidth: 1,
+    borderTopColor: T.colors.borderAccent,
+  },
+  searchingText: {
+    color: T.colors.accentLight,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
